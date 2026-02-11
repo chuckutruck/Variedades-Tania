@@ -18,7 +18,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <style>
-        /* ========== TUS ESTILOS ORIGINALES (sin cambios) ========== */
+        /* ========== TUS ESTILOS ORIGINALES ========== */
         :root {
             --primary: #4361ee;
             --primary-dark: #3a56d4;
@@ -795,7 +795,7 @@
                                         <input type="text" id="productSize" class="form-control" placeholder="Ej: M, 40cm">
                                     </div>
                                 </div>
-                                <!-- SECCIÓN DE SUBIDA DE ARCHIVOS A CLOUDINARY (CORREGIDA) -->
+                                <!-- SECCIÓN DE SUBIDA DE ARCHIVOS A CLOUDINARY -->
                                 <div class="form-section">
                                     <h3 class="form-section-title"><i class="fas fa-images"></i> Imágenes / Documentos</h3>
                                     <div class="image-upload-area" id="imageUploadArea" onclick="openCloudinaryWidget()">
@@ -1024,8 +1024,8 @@
         // CONFIGURACIÓN DE CLOUDINARY (TUS DATOS)
         // ============================================
         const CLOUDINARY_CLOUD_NAME = "djelnkrtm";      // Tu cloud name
-        const CLOUDINARY_UPLOAD_PRESET = "depositos";   // Tu preset (DEBE SER UNSIGNED)
-        const CLOUDINARY_FOLDER = "samples/Productos";  // Carpeta
+        const CLOUDINARY_UPLOAD_PRESET = "Depositos";   // ✅ IMPORTANTE: DEBE SER "Depositos" con D mayúscula
+        const CLOUDINARY_FOLDER = "samples/Productos";  // Carpeta donde se guardarán las imágenes
 
         console.log("☁️ Cloudinary configurado:", CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET);
 
@@ -1036,7 +1036,7 @@
         let productsRef = null;
         let usersRef = null;
         let allProducts = [];
-        let currentProductImages = [];   // Array de objetos { url, publicId, name }
+        let currentProductImages = [];
         let editMode = false;
         let currentEditId = null;
         let unsubscribeProducts = null;
@@ -1044,17 +1044,15 @@
         let cloudinaryWidget = null;
 
         // ============================================
-        // INICIALIZACIÓN DEL WIDGET DE CLOUDINARY (VERSIÓN CORREGIDA)
+        // INICIALIZACIÓN DEL WIDGET DE CLOUDINARY
         // ============================================
         function initCloudinaryWidget() {
-            // Verificar que el script de Cloudinary esté cargado
             if (typeof cloudinary === 'undefined') {
                 console.error("❌ Cloudinary Upload Widget no está cargado");
                 showStatusAlert("Error cargando Cloudinary. Recarga la página.", "danger");
                 return;
             }
 
-            // Configuración del widget
             const widgetConfig = {
                 cloudName: CLOUDINARY_CLOUD_NAME,
                 uploadPreset: CLOUDINARY_UPLOAD_PRESET,
@@ -1062,9 +1060,9 @@
                 sources: ['local', 'url', 'camera'],
                 multiple: true,
                 maxFiles: 5,
-                maxFileSize: 10000000, // 10MB
-                resourceType: 'auto',   // Permite imágenes y PDFs
-                clientAllowedFormats: ['jpg', 'jpeg', 'png', 'gif', 'pdf'], // Formatos permitidos
+                maxFileSize: 10000000,
+                resourceType: 'auto',
+                clientAllowedFormats: ['jpg', 'jpeg', 'png', 'gif', 'pdf'],
                 showAdvancedOptions: false,
                 cropping: false
             };
@@ -1075,9 +1073,8 @@
                 (error, result) => {
                     if (error) {
                         console.error("❌ Error en Cloudinary:", error);
-                        // Si el error es "Unknown API key", generalmente es porque el preset no es unsigned
                         if (error.message && error.message.includes("Unknown API key")) {
-                            showStatusAlert("Error: El preset 'Productos' no está configurado como 'Unsigned'. Verifica en Cloudinary.", "danger");
+                            showStatusAlert("Error: El preset 'Depositos' no está configurado como 'Unsigned'. Verifica en Cloudinary.", "danger");
                         } else {
                             showStatusAlert("Error al subir archivo: " + (error.message || "desconocido"), "danger");
                         }
@@ -1100,19 +1097,16 @@
         }
 
         // ============================================
-        // ABRIR WIDGET DE CLOUDINARY (CON REINTENTO)
+        // ABRIR WIDGET DE CLOUDINARY
         // ============================================
         function openCloudinaryWidget() {
-            // Límite de 5 archivos
             if (currentProductImages.length >= 5) {
                 showStatusAlert("Máximo 5 imágenes/documentos por producto", "warning");
                 return;
             }
 
-            // Si el widget no existe, lo inicializamos y abrimos después
             if (!cloudinaryWidget) {
                 initCloudinaryWidget();
-                // Dar tiempo para que se inicialice (500ms)
                 setTimeout(() => {
                     if (cloudinaryWidget) {
                         cloudinaryWidget.open();
@@ -1135,12 +1129,10 @@
             uploadStatus.style.display = 'block';
             uploadStatusText.innerHTML = `<i class="fas fa-check-circle"></i> Subida exitosa: ${info.original_filename || 'archivo'}`;
 
-            // Ocultar el mensaje después de 3 segundos
             setTimeout(() => {
                 uploadStatus.style.display = 'none';
             }, 3000);
 
-            // Agregar el archivo a la lista
             currentProductImages.push({
                 url: info.secure_url || info.url,
                 publicId: info.public_id,
@@ -1166,7 +1158,6 @@
 
             let html = '';
             currentProductImages.forEach((image, index) => {
-                // Si es PDF, mostrar un ícono; si es imagen, mostrar la imagen
                 const isPdf = image.url.toLowerCase().includes('.pdf') || image.publicId?.includes('pdf');
                 html += `
                     <div class="image-preview">
@@ -1217,7 +1208,6 @@
                 return;
             }
 
-            // Validar que la URL sea accesible
             fetch(url, { method: 'HEAD' })
                 .then(() => {
                     currentProductImages.push({
@@ -1309,8 +1299,8 @@
                     color: document.getElementById('productColor').value.trim(),
                     size: document.getElementById('productSize').value.trim(),
                     description: document.getElementById('productDescription').value.trim(),
-                    images: currentProductImages.map(img => img.url), // URLs de Cloudinary
-                    cloudinaryMetadata: currentProductImages, // Metadatos completos
+                    images: currentProductImages.map(img => img.url),
+                    cloudinaryMetadata: currentProductImages,
                     featured: document.getElementById('featuredProduct').checked,
                     onSale: document.getElementById('onSale').checked,
                     new: document.getElementById('newProduct').checked,
@@ -1325,7 +1315,6 @@
                 }
 
                 if (!editMode) {
-                    // Verificar código duplicado
                     const existingProduct = allProducts.find(p => p.code === productData.code);
                     if (existingProduct) {
                         showLoading(false);
@@ -1456,7 +1445,7 @@
         }
 
         // ============================================
-        // RENDERIZAR PRODUCTOS (GRID O TABLA)
+        // RENDERIZAR PRODUCTOS
         // ============================================
         function renderProducts(filteredProducts = null) {
             const productsGrid = document.getElementById('productsGrid');
@@ -1660,7 +1649,6 @@
                 document.getElementById('salePriceContainer').style.display = 'block';
             }
 
-            // Restaurar imágenes desde cloudinaryMetadata si existe
             if (product.cloudinaryMetadata && Array.isArray(product.cloudinaryMetadata)) {
                 currentProductImages = product.cloudinaryMetadata.map(img => ({ ...img }));
             } else if (product.images && Array.isArray(product.images)) {
@@ -1795,7 +1783,7 @@
         }
 
         // ============================================
-        // FUNCIONES DE INTERFAZ
+        // FUNCIONES DE INTERFAZ - CORREGIDAS
         // ============================================
         function showLoginPage() {
             document.getElementById('loginPage').style.display = 'flex';
@@ -1841,12 +1829,38 @@
             setTimeout(() => alertElement.style.display = 'none', 5000);
         }
 
+        // ============================================
+        // FUNCIÓN SHOW TAB CORREGIDA (SIN ERROR)
+        // ============================================
         function showTab(tabId) {
-            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
-            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-            document.getElementById(tabId).classList.add('active');
-            event.target.classList.add('active');
-            if (tabId === 'stats') updateStats();
+            // Ocultar todos los tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Desactivar todos los botones
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Mostrar el tab seleccionado
+            const selectedTab = document.getElementById(tabId);
+            if (selectedTab) {
+                selectedTab.classList.add('active');
+            }
+            
+            // Activar el botón correspondiente
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                const onclickAttr = btn.getAttribute('onclick');
+                if (onclickAttr && onclickAttr.includes(tabId)) {
+                    btn.classList.add('active');
+                }
+            });
+            
+            // Actualizar estadísticas si es necesario
+            if (tabId === 'stats') {
+                updateStats();
+            }
         }
 
         function showLoading(message = "Cargando...") {
@@ -1971,7 +1985,7 @@
                 showStatusAlert("Error de autenticación: " + error.message, "danger");
             });
 
-            showUploadedImages(); // Inicializa vista vacía
+            showUploadedImages();
         });
     </script>
 </body>

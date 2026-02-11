@@ -1269,6 +1269,26 @@
         </div>
     </div>
 
+    <!-- ========== NUEVO MODAL PARA ERRORES DE INVENTARIO ========== -->
+    <div class="modal fade" id="inventoryErrorModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">
+                        <i class="fas fa-exclamation-triangle me-2"></i> Error de Inventario
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="inventoryErrorContent"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     
@@ -1314,6 +1334,10 @@
         let ordersChart = null;
         let revenueChart = null;
 
+        // ========== NUEVAS VARIABLES PARA INVENTARIO ==========
+        let productsRef = null;
+        let unsubscribeProducts = null;
+
         // ============================================
         // INICIALIZACIÓN
         // ============================================
@@ -1327,6 +1351,8 @@
                     if (user && (user.email === 'admin@luxuryshop.com' || user.email === 'admin@admin.com')) {
                         // Usuario autenticado como admin
                         updateUserInfo(user);
+                        // ========== NUEVO: Cargar productos para inventario ==========
+                        loadProducts();
                         loadDashboardData();
                     } else {
                         // Redirigir al login
@@ -1490,6 +1516,11 @@
 
         function logout() {
             if (firebaseAuth) {
+                // ========== NUEVO: Limpiar listener de productos ==========
+                if (unsubscribeProducts) {
+                    unsubscribeProducts();
+                    unsubscribeProducts = null;
+                }
                 firebaseAuth.signOut().then(() => {
                     window.location.href = 'index.html';
                 }).catch(error => {
@@ -1905,6 +1936,7 @@
             loadOrders();
         }
 
+        // ========== FUNCIÓN MODIFICADA PARA INVENTARIO ==========
         function updateOrdersTable(orders) {
             const tbody = document.getElementById('ordersTableBody');
             
@@ -1949,15 +1981,23 @@
                             }
                         </td>
                         <td>
-                            <button class="btn-action btn-view me-1" onclick="viewOrderDetails('${order.id || order.orderNumber}')">
+                            <button class="btn-action btn-view me-1" onclick="viewOrderDetails('${order.id || order.orderNumber}')" title="Ver detalles">
                                 <i class="fas fa-eye"></i>
                             </button>
-                            <button class="btn-action btn-edit me-1" onclick="editOrderStatus('${order.id || order.orderNumber}')">
+                            <button class="btn-action btn-edit me-1" onclick="editOrderStatus('${order.id || order.orderNumber}')" title="Editar estado">
                                 <i class="fas fa-edit"></i>
                             </button>
-                            <button class="btn-action btn-process" onclick="processOrder('${order.id || order.orderNumber}')">
-                                <i class="fas fa-forward"></i>
-                            </button>
+                            ${order.status === 'pendiente' ? 
+                                `<button class="btn-action btn-process me-1" onclick="confirmOrderWithInventory('${order.id || order.orderNumber}')" title="Confirmar y descontar stock">
+                                    <i class="fas fa-check-circle"></i> Confirmar
+                                </button>` : ''
+                            }
+                            ${order.status === 'confirmado' || order.status === 'enviado' ?
+                                `<button class="btn-action btn-delete me-1" onclick="cancelOrderWithInventory('${order.id || order.orderNumber}')" title="Cancelar y restaurar stock">
+                                    <i class="fas fa-ban"></i> Cancelar
+                                </button>` : ''
+                            }
+                            ${order.status === 'completado' || order.status === 'cancelado' ? '' : ''}
                         </td>
                     </tr>
                 `;
@@ -2015,11 +2055,18 @@
             updateBulkActions();
         }
 
+        // ========== FUNCIÓN MODIFICADA PARA INVENTARIO ==========
         function applyBulkAction() {
             const action = document.getElementById('bulkStatusAction').value;
             
             if (!action) {
                 showAlert('Selecciona una acción primero', 'warning');
+                return;
+            }
+
+            // Si la acción es confirmado, usar proceso con inventario
+            if (action === 'confirmado') {
+                processMultipleOrdersWithInventory(Array.from(selectedOrders));
                 return;
             }
             
@@ -2184,31 +2231,25 @@
             }
         }
 
+        // ========== FUNCIÓN MODIFICADA: ELIMINAR PROCESO ANTIGUO Y USAR NUEVA FUNCIÓN ==========
         function processOrder(orderId) {
-            const order = allOrders.find(o => o.id === orderId || o.orderNumber === orderId);
-            
-            if (!order) {
-                showAlert('Pedido no encontrado', 'danger');
-                return;
-            }
-            
-            let nextStatus = 'confirmado';
-            switch(order.status) {
-                case 'pendiente': nextStatus = 'confirmado'; break;
-                case 'confirmado': nextStatus = 'enviado'; break;
-                case 'enviado': nextStatus = 'completado'; break;
-                default: nextStatus = 'completado';
-            }
-            
-            if (confirm(`¿Cambiar estado del pedido ${order.orderNumber} de "${order.status}" a "${nextStatus}"?`)) {
-                updateOrderStatus(orderId, nextStatus);
-            }
+            // Redirigir a la nueva función con inventario
+            confirmOrderWithInventory(orderId);
         }
 
+        // ========== FUNCIÓN MODIFICADA PARA INVENTARIO ==========
         function updateOrderStatus(orderId, newStatus) {
             // Actualizar en memoria
             const orderIndex = allOrders.findIndex(o => o.id === orderId || o.orderNumber === orderId);
             if (orderIndex !== -1) {
+                const oldStatus = allOrders[orderIndex].status;
+
+                // Si se cancela y el estado anterior era confirmado/enviado, restaurar inventario
+                if (newStatus === 'cancelado' && ['confirmado', 'enviado'].includes(oldStatus)) {
+                    // Llamada asíncrona, no esperamos
+                    restoreInventoryFromOrder(orderId).catch(console.error);
+                }
+
                 allOrders[orderIndex].status = newStatus;
                 allOrders[orderIndex].updatedAt = Date.now();
                 
@@ -3461,6 +3502,302 @@
             } catch (error) {
                 console.error('Error cargando configuración:', error);
             }
+        }
+
+        // ============================================
+        // NUEVAS FUNCIONES PARA INVENTARIO
+        // ============================================
+
+        /**
+         * Carga los productos desde Firebase y mantiene sincronización en tiempo real
+         */
+        function loadProducts() {
+            if (!firebaseDatabase) {
+                console.error('Firebase Database no disponible');
+                return;
+            }
+
+            productsRef = firebaseDatabase.ref('products');
+
+            unsubscribeProducts = productsRef.on('value', (snapshot) => {
+                const productsData = snapshot.val();
+                allProducts = [];
+
+                if (productsData) {
+                    Object.keys(productsData).forEach(key => {
+                        allProducts.push({
+                            id: key,
+                            ...productsData[key]
+                        });
+                    });
+                }
+
+                console.log(`📦 Productos cargados: ${allProducts.length}`);
+            }, (error) => {
+                console.error('Error cargando productos:', error);
+                showAlert('Error al cargar inventario: ' + error.message, 'danger');
+            });
+        }
+
+        /**
+         * Busca un producto por su código, SKU o ID
+         */
+        function findProductByCode(code) {
+            if (!code) return null;
+            return allProducts.find(p => 
+                p.code === code || 
+                p.id === code || 
+                p.sku === code ||
+                (p.code && p.code.toLowerCase() === code.toLowerCase()) ||
+                (p.sku && p.sku.toLowerCase() === code.toLowerCase())
+            );
+        }
+
+        /**
+         * Verifica disponibilidad de stock para un pedido
+         */
+        function checkOrderInventory(order) {
+            if (!order.items || order.items.length === 0) {
+                return { available: true, errors: [] };
+            }
+
+            const errors = [];
+
+            order.items.forEach(item => {
+                const product = findProductByCode(item.code || item.id || item.productId);
+                if (!product) {
+                    errors.push(`❌ Producto no encontrado: ${item.name || 'Desconocido'}`);
+                    return;
+                }
+
+                const stock = parseInt(product.stock) || 0;
+                const quantity = parseInt(item.quantity) || 1;
+
+                if (stock < quantity) {
+                    errors.push(`❌ Stock insuficiente para "${product.name}": disponible ${stock}, solicitado ${quantity}`);
+                }
+            });
+
+            return {
+                available: errors.length === 0,
+                errors
+            };
+        }
+
+        /**
+         * Descuenta inventario de un pedido confirmado
+         */
+        async function deductInventoryFromOrder(orderId) {
+            const order = allOrders.find(o => o.id === orderId || o.orderNumber === orderId);
+            if (!order) throw new Error('Pedido no encontrado');
+            if (!order.items || order.items.length === 0) throw new Error('El pedido no tiene productos');
+
+            const updates = [];
+
+            for (const item of order.items) {
+                const product = findProductByCode(item.code || item.id || item.productId);
+                if (!product) {
+                    throw new Error(`Producto no encontrado: ${item.name || item.code}`);
+                }
+
+                const currentStock = parseInt(product.stock) || 0;
+                const quantity = parseInt(item.quantity) || 1;
+
+                if (currentStock < quantity) {
+                    throw new Error(`Stock insuficiente para "${product.name}". Disponible: ${currentStock}, Solicitado: ${quantity}`);
+                }
+
+                const newStock = currentStock - quantity;
+
+                // Actualizar en Firebase
+                updates.push(
+                    productsRef.child(product.id).update({
+                        stock: newStock,
+                        lastUpdated: firebase.database.ServerValue.TIMESTAMP
+                    })
+                );
+
+                // Actualizar copia local
+                product.stock = newStock;
+            }
+
+            await Promise.all(updates);
+
+            // Registrar movimiento en Firebase (opcional)
+            const movement = {
+                orderId: order.orderNumber,
+                orderDate: Date.now(),
+                items: order.items.map(i => ({
+                    code: i.code || i.id,
+                    name: i.name,
+                    quantity: i.quantity
+                })),
+                type: 'order_confirmed',
+                user: currentUser?.email || 'admin'
+            };
+            await firebaseDatabase.ref('stockMovements').push(movement).catch(console.error);
+
+            return { success: true, message: 'Inventario actualizado' };
+        }
+
+        /**
+         * Restaura inventario cuando se cancela un pedido
+         */
+        async function restoreInventoryFromOrder(orderId) {
+            const order = allOrders.find(o => o.id === orderId || o.orderNumber === orderId);
+            if (!order) throw new Error('Pedido no encontrado');
+
+            const updates = [];
+
+            for (const item of order.items || []) {
+                const product = findProductByCode(item.code || item.id || item.productId);
+                if (product) {
+                    const currentStock = parseInt(product.stock) || 0;
+                    const quantity = parseInt(item.quantity) || 1;
+                    const newStock = currentStock + quantity;
+
+                    updates.push(
+                        productsRef.child(product.id).update({
+                            stock: newStock,
+                            lastUpdated: firebase.database.ServerValue.TIMESTAMP
+                        })
+                    );
+                    product.stock = newStock;
+                }
+            }
+
+            await Promise.all(updates);
+
+            // Registrar movimiento
+            const movement = {
+                orderId: order.orderNumber,
+                orderDate: Date.now(),
+                items: order.items?.map(i => ({
+                    code: i.code || i.id,
+                    name: i.name,
+                    quantity: i.quantity
+                })),
+                type: 'order_cancelled',
+                user: currentUser?.email || 'admin'
+            };
+            await firebaseDatabase.ref('stockMovements').push(movement).catch(console.error);
+
+            return { success: true };
+        }
+
+        /**
+         * Confirma un pedido y descuenta el inventario
+         */
+        async function confirmOrderWithInventory(orderId) {
+            const order = allOrders.find(o => o.id === orderId || o.orderNumber === orderId);
+            if (!order) {
+                showAlert('Pedido no encontrado', 'danger');
+                return;
+            }
+
+            // 1. Verificar inventario
+            const check = checkOrderInventory(order);
+            if (!check.available) {
+                // Mostrar errores en el modal
+                const errorHtml = `
+                    <div class="alert alert-danger">
+                        <h6>No se puede confirmar el pedido:</h6>
+                        <ul class="mb-0">
+                            ${check.errors.map(err => `<li>${err}</li>`).join('')}
+                        </ul>
+                    </div>
+                `;
+                document.getElementById('inventoryErrorContent').innerHTML = errorHtml;
+                const modal = new bootstrap.Modal(document.getElementById('inventoryErrorModal'));
+                modal.show();
+                return;
+            }
+
+            if (!confirm(`¿Confirmar pedido ${order.orderNumber} y descontar del inventario?`)) {
+                return;
+            }
+
+            showLoading('Actualizando inventario...');
+            try {
+                // 2. Descontar stock
+                await deductInventoryFromOrder(orderId);
+                
+                // 3. Cambiar estado del pedido
+                updateOrderStatus(orderId, 'confirmado');
+                
+                hideLoading();
+                showAlert(`✅ Pedido ${order.orderNumber} confirmado. Stock actualizado.`, 'success');
+            } catch (error) {
+                hideLoading();
+                showAlert(`Error: ${error.message}`, 'danger');
+                console.error(error);
+            }
+        }
+
+        /**
+         * Cancela un pedido y restaura el inventario (si estaba confirmado o enviado)
+         */
+        async function cancelOrderWithInventory(orderId) {
+            const order = allOrders.find(o => o.id === orderId || o.orderNumber === orderId);
+            if (!order) {
+                showAlert('Pedido no encontrado', 'danger');
+                return;
+            }
+
+            // Solo restaurar si el estado era confirmado o enviado (estados que descontaron stock)
+            if (!['confirmado', 'enviado'].includes(order.status)) {
+                // Si está pendiente, solo cancelar sin restaurar
+                updateOrderStatus(orderId, 'cancelado');
+                showAlert('Pedido cancelado (sin restaurar inventario)', 'success');
+                return;
+            }
+
+            if (!confirm(`¿Cancelar pedido ${order.orderNumber} y restaurar el inventario?`)) {
+                return;
+            }
+
+            showLoading('Restaurando inventario...');
+            try {
+                await restoreInventoryFromOrder(orderId);
+                updateOrderStatus(orderId, 'cancelado');
+                hideLoading();
+                showAlert(`✅ Pedido cancelado. Inventario restaurado.`, 'success');
+            } catch (error) {
+                hideLoading();
+                showAlert(`Error al restaurar: ${error.message}`, 'danger');
+            }
+        }
+
+        /**
+         * Procesa múltiples pedidos con inventario
+         */
+        async function processMultipleOrdersWithInventory(orderIds) {
+            showLoading(`Procesando ${orderIds.length} pedidos...`);
+            
+            let successCount = 0;
+            let errorList = [];
+
+            for (const orderId of orderIds) {
+                try {
+                    await deductInventoryFromOrder(orderId);
+                    updateOrderStatus(orderId, 'confirmado');
+                    successCount++;
+                } catch (error) {
+                    errorList.push(`Pedido ${orderId}: ${error.message}`);
+                }
+            }
+
+            hideLoading();
+
+            if (errorList.length > 0) {
+                showAlert(`✅ ${successCount} confirmados. ⚠️ Errores:\n${errorList.join('\n')}`, 'warning');
+            } else {
+                showAlert(`✅ ${successCount} pedidos confirmados exitosamente.`, 'success');
+            }
+
+            clearOrderSelection();
+            loadOrders();
+            loadDashboardData();
         }
 
         // ============================================
